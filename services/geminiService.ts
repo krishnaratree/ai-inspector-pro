@@ -1,20 +1,28 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { DamageDetection } from "../types";
 
-// ปรับชื่อ Model เป็นตัวที่เสถียรและเร็วที่สุดสำหรับการทำ Bounding Box
+// ใช้รุ่นที่เสถียรที่สุดสำหรับงาน Vision
 const MODEL_NAME = 'gemini-1.5-flash';
 
-// ดึง API Key ผ่านระบบของ Vite ที่เชื่อมกับ Environment Variables ของ Netlify
-const getApiKey = () => import.meta.env.VITE_GEMINI_API_KEY || '';
+/**
+ * ฟังก์ชันช่วยดึง API Key ให้รองรับทั้ง Vite (Local) และ Netlify (Production)
+ */
+const getApiKey = () => {
+  // ลองดึงจาก Vite env (มาตรฐานสูงสุด)
+  if (import.meta.env.VITE_GEMINI_API_KEY) return import.meta.env.VITE_GEMINI_API_KEY;
+  // ลองดึงจาก Define plugin (ที่เซ็ตใน vite.config)
+  if (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
+  return '';
+};
 
 export async function analyzeImage(base64Image: string): Promise<DamageDetection[]> {
-  // แก้ไขการเรียกใช้ GoogleGenAI ให้ถูกต้องตาม SDK ล่าสุด
-  const genAI = new GoogleGenerativeAI(getApiKey());
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error("API Key is missing. Please check your Netlify Environment Variables.");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ 
     model: MODEL_NAME,
-    generationConfig: {
-      responseMimeType: "application/json",
-    }
+    generationConfig: { responseMimeType: "application/json" }
   });
 
   const prompt = `
@@ -31,21 +39,15 @@ export async function analyzeImage(base64Image: string): Promise<DamageDetection
   `;
 
   try {
-    const imageData = base64Image.split(',')[1] || base64Image;
+    const imageData = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
     
     const result = await model.generateContent([
       prompt,
-      {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: imageData
-        }
-      }
+      { inlineData: { mimeType: "image/jpeg", data: imageData } }
     ]);
 
     const response = await result.response;
-    const text = response.text();
-    const results = JSON.parse(text || '[]');
+    const results = JSON.parse(response.text() || '[]');
     
     return results.map((r: any, index: number) => ({
       ...r,
@@ -58,36 +60,27 @@ export async function analyzeImage(base64Image: string): Promise<DamageDetection
 }
 
 export async function zoomAnalysis(originalBase64: string, zoomedBase64: string, initialDescription: string): Promise<string> {
-  const genAI = new GoogleGenerativeAI(getApiKey());
+  const apiKey = getApiKey();
+  const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
   const prompt = `
     This is a high-resolution zoomed-in view of a suspicious area on a car.
-    Often, a finger is pointing to this specific area in the original context.
+    Context: ${initialDescription}
     
     Examine the surface texture, edges, and light refraction carefully.
-    Identify if this is a physical scratch (depth/irregular edges), a dent, or just a reflection of the surroundings.
-    
+    Identify if this is a physical scratch, a dent, or just a reflection.
     Provide a professional, concise technical conclusion (2-3 sentences).
   `;
 
   try {
-    const zoomedData = zoomedBase64.split(',')[1] || zoomedBase64;
-
+    const zoomedData = zoomedBase64.includes(',') ? zoomedBase64.split(',')[1] : zoomedBase64;
     const result = await model.generateContent([
       prompt,
-      {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: zoomedData
-        }
-      }
+      { inlineData: { mimeType: "image/jpeg", data: zoomedData } }
     ]);
-
-    const response = await result.response;
-    return response.text() || "Detailed analysis inconclusive.";
+    return result.response.text() || "Analysis inconclusive.";
   } catch (error) {
-    console.error("Gemini Zoom Error:", error);
-    return "Failed to complete detailed zoom analysis.";
+    return "Detailed analysis failed.";
   }
 }
