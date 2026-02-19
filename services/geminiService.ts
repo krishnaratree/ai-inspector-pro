@@ -1,52 +1,38 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// ดึง API Key จาก Environment Variables ใน Netlify
+// ใช้ API Key จาก Environment Variable
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 
-/**
- * ฟังก์ชันหลักสำหรับวิเคราะห์รูปภาพความเสียหายของรถ
- */
 export const analyzeImage = async (base64Image: string) => {
-  // ใช้โมเดล gemini-1.5-flash เพื่อความเร็วและรองรับ Bounding Box
+  // เปลี่ยนมาใช้ชื่อโมเดลแบบเจาะจงเพื่อเลี่ยง Error 404
   const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-    generationConfig: { responseMimeType: "application/json" } // บังคับตอบเป็น JSON
+    model: "gemini-1.5-flash-latest" 
   });
 
-  const prompt = `Analyze this car damage image. 
-  Identify scratches, dents, or broken parts.
-  Return the response STRICTLY as a JSON object with this structure:
-  {
-    "detections": [
-      {
-        "label": "damage type",
-        "confidence": 0.9,
-        "box_2d": [ymin, xmin, ymax, xmax] 
-      }
-    ],
-    "summary": "overall description"
+  const prompt = `Identify car damages. 
+  Return ONLY a JSON object with this format:
+  {"detections": [{"label": "dent", "box_2d": [ymin, xmin, ymax, xmax]}]}
+  Coordinates must be 0-1000. Do not include markdown formatting like \`\`\`json.`;
+
+  try {
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { data: base64Image.split(',')[1], mimeType: "image/jpeg" } }
+    ]);
+
+    const response = await result.response;
+    let text = response.text();
+    
+    // ล้างข้อความส่วนเกินที่ AI อาจจะแถมมาเพื่อให้ JSON.parse ทำงานได้
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    return text;
+  } catch (error) {
+    console.error("Gemini Error:", error);
+    throw error;
   }
-  Note: box_2d coordinates should be normalized (0-1000).`;
-
-  const result = await model.generateContent([
-    prompt,
-    {
-      inlineData: {
-        data: base64Image.split(',')[1],
-        mimeType: "image/jpeg"
-      }
-    }
-  ]);
-
-  const response = await result.response;
-  return response.text();
 };
 
-/**
- * ฟังก์ชันสำหรับการวิเคราะห์แบบเจาะจงจุด (Zoom) 
- * เพิ่มไว้เพื่อให้ App.tsx เรียกใช้งานได้ Build จะได้ไม่พัง
- */
 export const zoomAnalysis = async (base64Image: string) => {
-  // ปัจจุบันส่งไปที่ฟังก์ชันหลักเหมือนกัน เพื่อรักษาเสถียรภาพของแอป
   return analyzeImage(base64Image);
 };
