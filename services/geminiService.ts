@@ -1,35 +1,35 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// ใช้ API Key จาก Environment Variable
+// ใช้ API Key จาก Netlify Environment Variable
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 
 export const analyzeImage = async (base64Image: string) => {
-  // เปลี่ยนมาใช้ชื่อโมเดลแบบเจาะจงเพื่อเลี่ยง Error 404
-  const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash-latest" 
-  });
+  // แก้ไข: ใช้ชื่อโมเดล "gemini-1.5-flash" (ตัด -latest ออก) 
+  // และไม่ใส่ configuration ซับซ้อนในบรรทัดนี้
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-  const prompt = `Identify car damages. 
-  Return ONLY a JSON object with this format:
-  {"detections": [{"label": "dent", "box_2d": [ymin, xmin, ymax, xmax]}]}
-  Coordinates must be 0-1000. Do not include markdown formatting like \`\`\`json.`;
+  const prompt = `Identify car damages (scratches, dents). 
+  Return ONLY a JSON object: {"detections": [{"label": "damage type", "box_2d": [ymin, xmin, ymax, xmax]}]}
+  Coordinates 0-1000. No extra text.`;
 
   try {
     const result = await model.generateContent([
       prompt,
-      { inlineData: { data: base64Image.split(',')[1], mimeType: "image/jpeg" } }
+      {
+        inlineData: {
+          data: base64Image.split(',')[1],
+          mimeType: "image/jpeg"
+        }
+      }
     ]);
 
     const response = await result.response;
-    let text = response.text();
-    
-    // ล้างข้อความส่วนเกินที่ AI อาจจะแถมมาเพื่อให้ JSON.parse ทำงานได้
-    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    
+    const text = response.text().replace(/```json/g, "").replace(/```/g, "").trim();
     return text;
   } catch (error) {
     console.error("Gemini Error:", error);
-    throw error;
+    // ส่งค่าว่างกลับไปเพื่อให้แอปไม่ค้าง และเราจะเห็น Error ใน Console ชัดขึ้น
+    return JSON.stringify({ detections: [], summary: "Error: " + error });
   }
 };
 
